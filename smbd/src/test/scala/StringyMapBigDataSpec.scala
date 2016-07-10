@@ -27,7 +27,7 @@ package object formats {
   // if you get compiler errors for ReceptacleF, uncomment these to
   // help find which implicit is not being found:
   //implicit val BottleF: BigDataFormat[Bottle] = cachedImplicit
-  //implicit val GlassF: BigDataFormat[Glass.type] = cachedImplicit
+  //impliceit val GlassF: BigDataFormat[Glass.type] = cachedImplicit
 
   implicit val ReceptacleF: BigDataFormat[Receptacle] = cachedImplicit
 }

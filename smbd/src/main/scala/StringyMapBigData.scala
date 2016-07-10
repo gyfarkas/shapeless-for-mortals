@@ -41,13 +41,111 @@ package api {
 package object impl {
   import api._
 
-  // EXERCISE 1.1 goes here
-  // implicit def hNilBigDataFormat = ???
-  // implicit def hListBigDataFormat = ???
-  // implicit def cNilBigDataFormat = ???
-  // implicit def coproductBigDataFormat = ???
+  implicit object stringPromitive extends SPrimitive[String] {
+    def toValue(s: String) = s
+    def fromValue(v: AnyRef) = v.toString
+  }
 
-  implicit def familyBigDataFormat[T] = ???
+  implicit object intPromitive extends SPrimitive[Int] {
+    def toValue(s: Int) = s.asInstanceOf[AnyRef]
+    def fromValue(v: AnyRef) = v.asInstanceOf[Int]
+  }
+
+  implicit object DoublePromitive extends SPrimitive[Double] {
+    def toValue(s: Double) = s.asInstanceOf[AnyRef]
+    def fromValue(v: AnyRef) = v.asInstanceOf[Double]
+  }
+
+  implicit object BoolPromitive extends SPrimitive[Boolean] {
+    def toValue(s: Boolean) = s.asInstanceOf[AnyRef]
+    def fromValue(v: AnyRef) = v.asInstanceOf[Boolean]
+  }
+
+  // EXERCISE 1.1 goes here
+  implicit object hNilBigDataFormat extends BigDataFormat[HNil] {
+    def label = "hnil"
+    def toProperties(t: HNil) = new java.util.HashMap[String, AnyRef]()
+    def fromProperties(m: StringyMap) = Right(HNil)
+  }
+
+  implicit def hListBigDataFormat[Key <: Symbol, Value, Tail <: HList](implicit
+    witness: Witness.Aux[Key],
+    valueFormatter: Lazy[SPrimitive[Value]],
+    restFormatter: Lazy[BigDataFormat[Tail]]): BigDataFormat[FieldType[Key, Value] :: Tail] =
+    new BigDataFormat[FieldType[Key, Value] :: Tail] {
+      def label = "hcons"
+      def toProperties(t: FieldType[Key, Value] :: Tail): StringyMap = {
+        val key = witness.value.name
+        val rest = restFormatter.value.toProperties(t.tail)
+        val head = valueFormatter.value.toValue(t.head)
+        rest.put(key, head)
+        rest
+      }
+
+      def fromProperties(m: StringyMap): BigResult[FieldType[Key, Value] :: Tail] = {
+        val x = valueFormatter.value.fromValue(m.get(witness.value.name))
+        val h = field[Key](x)
+        val tail = restFormatter.value.fromProperties(m)
+        tail match {
+          case Left(e) => Left(e)
+          case Right(t) => Right(h :: t)
+        }
+      }
+    }
+
+  implicit object cNilBigDataFormat extends BigDataFormat[CNil] {
+    def label = "cNil"
+    def toProperties(t: CNil): StringyMap = new java.util.HashMap[String, AnyRef]()
+    def fromProperties(m: StringyMap) = Left("CNil")
+  }
+
+  implicit def coproductBigDataFormat[Key <: Symbol, Value, Rest <: Coproduct](implicit
+    witness: Witness.Aux[Key],
+    valueFormatter: Lazy[BigDataFormat[Value]],
+    restFormatter: Lazy[BigDataFormat[Rest]]): BigDataFormat[FieldType[Key, Value] :+: Rest] = new BigDataFormat[FieldType[Key, Value] :+: Rest] {
+    def label = "cNil"
+    def toProperties(t: FieldType[Key, Value] :+: Rest) = {
+      t match {
+        case Inl(h) => {
+          val r = valueFormatter.value.toProperties(h)
+          r.put("type", witness.value.name)
+          r
+        }
+        case Inr(r) => restFormatter.value.toProperties(r)
+      }
+    }
+
+    def fromProperties(m: StringyMap) = {
+      if (m.get("type") == witness.value.name) {
+        valueFormatter.value.fromProperties(m) match {
+          case Right(x) => Right(Inl(field[Key](x)))
+          case Left(y) => Left(y)
+        }
+      } else {
+        restFormatter.value.fromProperties(m) match {
+          case Left(y) => Left(y)
+          case Right(x) => Right(Inr(x))
+        }
+      }
+    }
+  }
+
+  implicit def familyBigDataFormat[T, Repr](implicit
+    gen: LabelledGeneric.Aux[T, Repr],
+    reprFormatter: Lazy[BigDataFormat[Repr]],
+    tpe: Typeable[T]): BigDataFormat[T] =
+    new BigDataFormat[T] {
+      def label = "T"
+      def toProperties(t: T) = reprFormatter.value.toProperties(gen.to(t))
+      def fromProperties(m: StringyMap) = try {
+        reprFormatter.value.fromProperties(m) match {
+          case Right(x) => Right(gen.from(x))
+          case Left(y) => Left(y)
+        }
+      } catch {
+        case _: Throwable => Left("some sensible error here")
+      }
+    }
 }
 
 package impl {
